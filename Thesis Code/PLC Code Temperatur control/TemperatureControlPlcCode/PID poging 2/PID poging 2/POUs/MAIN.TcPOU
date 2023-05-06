@@ -1,0 +1,46 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.11">
+  <POU Name="MAIN" Id="{a1204864-8e37-4b95-b4e1-eee49f101afa}" SpecialFunc="None">
+    <Declaration><![CDATA[PROGRAM MAIN
+VAR
+	FB_TEST : FB_FruitTemperatureControl;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[FB_TEST(//Input
+		eControlMode := GVL.eTestMode,
+		fTfruitRef := GVL.fTestTfruitRef,
+		fTthermostat := GVL.fTestTthermostat,
+		fTfruit := GVL.fTestTfruit,
+		fKp := GVL.fTestKp,
+		fKi := GVL.tTestKi,
+		fKt := GVL.tTestKt,
+		bReset := GVL.bTestReset,
+		
+		//Output
+		fTthermostatOut => GVL.fTestTthermostatOut,
+		sStateText => GVL.sTestStateText,
+		bRelay => GVL.bRelay,
+		
+		//Test output
+		fTestUantiWind => GVL.fTestUantiWind,
+		fTestUerrorSat => GVL.fTestUerrorSat,
+		fTestUvoorSat => GVL.fTestUvoorSat,
+		fTestTsetOut => GVL.fTestTsetOut);
+]]></ST>
+    </Implementation>
+    <LineIds Name="MAIN">
+      <LineId Id="2" Count="0" />
+      <LineId Id="49" Count="0" />
+      <LineId Id="21" Count="5" />
+      <LineId Id="56" Count="0" />
+      <LineId Id="51" Count="0" />
+      <LineId Id="50" Count="0" />
+      <LineId Id="28" Count="1" />
+      <LineId Id="45" Count="0" />
+      <LineId Id="47" Count="1" />
+      <LineId Id="35" Count="3" />
+      <LineId Id="34" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

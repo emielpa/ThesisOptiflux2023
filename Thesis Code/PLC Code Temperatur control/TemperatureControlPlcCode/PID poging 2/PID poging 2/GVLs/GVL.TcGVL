@@ -1,0 +1,30 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.11">
+  <GVL Name="GVL" Id="{f47eaa83-7bcc-414f-9435-7fb8d6f87f9b}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+VAR_GLOBAL
+	eTestMode : eModeTemperatureControl := eModeTemperatureControl.Normal; //Control mode
+	fTestTsetOut : LREAL; //Calculated Tset
+	fTestTthermostatOut : LREAL; //Adjsuted thermostat temperature
+	fTestTthermostat : LREAL := -0.9; //input thermostat
+	fTestTfruitRef : LREAL := -1;	//Reference temeprature
+	fTestTfruit : LREAL := -0.75; //Fruit temperature
+	bTestReset : BOOL; //Reset button
+	// Control mode text
+	sTestStateText : STRING (255);
+	bRelay : BOOL; //output relay
+	
+	
+	fTestKp : LREAL := 15;
+	tTestKi : LREAL := 0.0136;
+	tTestKt : LREAL := 0.0368;
+	
+	//outputs
+	//Variables for checking the graph
+	fTestUvoorSat : LREAL;
+	fTestUerrorSat : LREAL;
+	fTestUantiWind : LREAL;
+	
+END_VAR]]></Declaration>
+  </GVL>
+</TcPlcObject>

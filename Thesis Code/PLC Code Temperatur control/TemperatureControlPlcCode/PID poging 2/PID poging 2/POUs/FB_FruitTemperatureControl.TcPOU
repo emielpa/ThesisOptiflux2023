@@ -1,0 +1,440 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.11">
+  <POU Name="FB_FruitTemperatureControl" Id="{d8ae7a22-8f65-43d7-a7d8-872cf5cb01df}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_FruitTemperatureControl
+VAR_INPUT
+	fTfruitRef : LREAL;
+	fTthermostat : LREAL; //AI Adres Thermostat
+	fTfruit : LREAL; //AI Adress fruit temperature sensor
+	
+	fKp : LREAL;
+	fKi : LREAL;
+	fKt : LREAL;
+	
+	eControlMode : eModeTemperatureControl; //0 = Normal, 1 = Measure, 2 = Control
+	bReset : BOOL; //Rising edge needed
+END_VAR
+VAR_OUTPUT
+	fTthermostatOut : LREAL; //AQ Adres Thermostat out
+	sStateText : STRING(255);
+	bRelay : BOOL; //DQ relay
+	
+	fTestUvoorSat : LREAL; //Temporary output variables for graph 
+	fTestUerrorSat : LREAL; //Temporary output variables for graph 
+	fTestUantiWind : LREAL; //Temporary output variables for graph 
+	fTestTsetOut : LREAL; //Temporary output variables for graph 
+	
+END_VAR
+VAR
+	tTi : TIME;
+	tTt : TIME;
+	//PI
+	FB_PI : FB_CTRL_PI;
+	ParamsPi : ST_CTRL_PI_PARAMS;
+	eErrorIdPI : E_CTRL_ERRORCODES;
+	bErrorPI : BOOL;
+	//I
+	FB_I : FB_CTRL_I;
+	ParamsI : ST_CTRL_I_PARAMS;
+	eErrorIdI : E_CTRL_ERRORCODES;
+	bErrorI	 : BOOL;
+	//Limiter
+	FB_LIMIT : FB_CTRL_LIMITER;
+	ParamsLimiter : ST_CTRL_LIMITER_PARAMS;
+	eErrorIdLimiter : E_CTRL_ERRORCODES;
+	bErrorLimiter	 : BOOL;
+	fMinTset : LREAL;
+	fMaxTset : LREAL;
+	tCycleTime : TIME := T#1000MS; //Sampling time = 1s
+
+	fTfruitZero : LREAL;
+	fTsetZero : LREAL;
+	bRunOnce : BOOL := TRUE;
+	bSafety : BOOL := TRUE;
+	rTrigger : R_TRIG;
+	
+	//controller output variables
+	fUafterSat: LREAL;
+	fUerrorSat: LREAL; 
+	fUvoorSat: LREAL;
+	fUantiWind: LREAL := 0;
+	fUpi: LREAL;
+	fTsetOut : LREAL;
+	//Timer Tset =< -2°C
+	bTimerAtMinus2 : BOOL := FALSE;
+	tMaxTimeMinus2 : TIME := T#56000S; //15h33min20s
+	bTimerAtMinus2Out : BOOL;
+	TimerAtMinus2 : TON;
+	tElapsedTimeAtMinus2 : TIME;
+	
+	//Timer Tset > -2°C
+	bTimerAboveMinus2 : BOOL := FALSE;
+	tMinTimeAboveMinus2 : TIME := T#1800S; //30min
+	bTimerAboveMinus2Out : BOOL;
+	TimerAboveMinus2 : TON;
+	tElapsedTimeAboveMinus2 : TIME;
+	bRtrigOut: BOOL;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[
+//Integral gain to integral time
+tTi := LREAL_TO_TIME((fKp/fKi)*1000);
+tTt := LREAL_TO_TIME((1/fKt)*1000);	
+//******************************************************************************//
+IF (eControlMode = 2 AND bSafety = TRUE) THEN //Control mode
+	IF bRunOnce THEN
+		fTfruitZero := fTfruit; //Important that the cold store is running for a few days with Tset = TfruitRef
+		fTsetZero := fTfruitRef;
+		bRunOnce := FALSE;
+	END_IF
+	
+	//PI blok
+	ParamsPi.fKp := fKp;
+	ParamsPi.tTn := tTi;
+	ParamsPi.fOutMaxLimit := 1E38;
+	ParamsPi.fOutMinLimit := -1E38;
+	ParamsPi.tCtrlCycleTime := tCycleTime;
+	ParamsPi.tTaskCycleTime:= tCycleTime;
+	ParamsPi.bARWOnIPartOnly := TRUE;
+	
+	FB_PI(	fSetpointValue		:= fTfruitRef-fTfruitZero,
+			fActualValue		:= fTfruit-fTfruitZero ,
+			fManSyncValue	:= 0,
+			bSync				:= FALSE,
+			eMode				:= E_CTRL_MODE.eCTRL_MODE_ACTIVE,
+			bHold				:= FALSE,
+			stParams			:= ParamsPi,
+			fOut				=> fUpi,
+			bARWactive		=> ,
+			eErrorId			=> eErrorIdPI,
+			bError				=> bErrorPI
+				);
+	fUvoorSat := fUpi+fUantiWind;
+		fTestUvoorSat:=fUvoorSat; 	//Test variabels
+	//Limiter
+	fMinTset := -1;
+	fMaxTset := 3+fTfruitRef;
+	
+	
+	ParamsLimiter.fMaxOutput := fMaxTset;
+	ParamsLimiter.fMinOutput := fMinTset;
+	ParamsLimiter.tCtrlCycleTime := tCycleTime;
+	ParamsLimiter.tTaskCycleTime := tCycleTime;
+	
+	FB_LIMIT (	fIn					:= fUvoorSat,
+			  	stParams			:= ParamsLimiter,
+				fOut				=> fUafterSat,
+				eErrorId			=> eErrorIdLimiter,
+				bError				=> bErrorLimiter);
+	
+	//I blok
+	ParamsI.fOutMaxLimit := 1E38;
+	ParamsI.fOutMinLimit := -1E38;
+	ParamsI.tCtrlCycleTime := tCycleTime;
+	ParamsI.tTaskCycleTime := tCycleTime;
+	ParamsI.tTi := tTt;
+	
+		fTestUerrorSat := fUerrorSat; 	//Test variabels
+	fUerrorSat := fUafterSat-fUvoorSat;					
+	FB_I(	fIn					:= fUerrorSat,
+			eMode				:= E_CTRL_MODE.eCTRL_MODE_ACTIVE,
+			stParams			:= ParamsI,
+			fOut				=> fUantiWind,
+			eErrorId			=> eErrorIdI,
+			bError				=> bErrorI);
+	fTestUantiWind := fUantiWind; 	//Test variabels
+	//TsetOut to TthermostatOut
+	fTsetOut := fUafterSat + fTsetZero;
+	fTthermostatOut := fTthermostat + (fTsetOut-fTsetZero);
+	
+		fTestTsetOut := fTsetOut; 	//Test variabels
+		GVL.fTestTthermostatOut := fTthermostatOut;	//Test variabels
+	//-2°C timer
+	IF(fTsetOut > -2) THEN
+		bTimerAboveMinus2 := TRUE;
+	ELSE
+		bTimerAboveMinus2 := FALSE;
+	END_IF
+	//*********************************************************************//
+	TimerAboveMinus2(IN := bTimerAboveMinus2,
+					PT := tMinTimeAboveMinus2,
+					Q => bTimerAboveMinus2Out,
+					ET => tElapsedTimeAboveMinus2);
+ 	IF(bTimerAboveMinus2Out = TRUE) THEN //We are safe
+		bTimerAboveMinus2 := FALSE;
+		TimerAboveMinus2(IN := bTimerAboveMinus2,
+			PT := tMinTimeAboveMinus2,
+			Q => bTimerAboveMinus2Out,
+			ET => tElapsedTimeAboveMinus2);
+					
+		bTimerAtMinus2 := FALSE;
+		TimerAtMinus2(IN := bTimerAtMinus2,
+			PT := tMaxTimeMinus2,
+			Q => bTimerAtMinus2Out,
+			ET => tElapsedTimeAtMinus2);	
+			
+	END_IF
+	 
+	IF (fTsetOut <= -2 AND NOT(bTimerAboveMinus2Out))THEN
+		bTimerAtMinus2 := TRUE;	
+	END_IF
+	TimerAtMinus2(IN := bTimerAtMinus2,
+		PT := tMaxTimeMinus2,
+		Q => bTimerAtMinus2Out,
+		ET => tElapsedTimeAtMinus2);
+	IF(bTimerAtMinus2Out) THEN //To long at -2
+		bSafety := FALSE;
+	END_IF
+	
+	sStateText := 'PI temperature control is running';
+	bRelay := TRUE;
+//******************************************************************************//
+ELSE
+	IF(eControlMode = 1 AND bSafety = TRUE)THEN //Measurement mode
+		bRunOnce := TRUE;
+		
+		//Resetting PI, I and TON
+		bTimerAtMinus2 := FALSE;
+		TimerAtMinus2(IN := bTimerAtMinus2,
+			PT := tMaxTimeMinus2,
+			Q => bTimerAtMinus2Out,
+			ET => tElapsedTimeAtMinus2);
+		
+		bTimerAboveMinus2 := FALSE; 
+		TimerAboveMinus2(IN := bTimerAboveMinus2,
+			PT := tMinTimeAboveMinus2,
+			Q => bTimerAboveMinus2Out,
+			ET => tElapsedTimeAboveMinus2);
+
+		FB_PI(fSetpointValue		:= fTfruitRef-fTfruitZero,
+			fActualValue		:= fTfruit-fTfruitZero ,
+			fManSyncValue	:= 0,
+			bSync				:= FALSE,
+			eMode				:= E_CTRL_MODE.eCTRL_MODE_RESET,
+			bHold				:= FALSE,
+			stParams			:= ParamsPi,
+			fOut				=> fUpi,
+			bARWactive		=> ,
+			eErrorId			=> eErrorIdPI,
+			bError				=> bErrorPI);
+		FB_I(fIn				:= fUerrorSat,
+			eMode				:= E_CTRL_MODE.eCTRL_MODE_RESET,
+			stParams			:= ParamsI,
+			fOut				=> fUantiWind,
+			eErrorId			=> eErrorIdI,
+			bError				=> bErrorI);
+		fTthermostatOut := fTthermostat;
+		sStateText := 'Normal control and collecting data';
+		bRelay := TRUE;
+
+		//Data measurement algoritm;
+	 	
+	END_IF
+//******************************************************************************//	
+	IF (eControlMode = 0 AND bSafety = TRUE) THEN //Normal mode
+		bRunOnce := TRUE;
+		
+		//Resetting PI, I and TON
+		bTimerAtMinus2 := FALSE;
+		TimerAtMinus2(IN := bTimerAtMinus2,
+			PT := tMaxTimeMinus2,
+			Q => bTimerAtMinus2Out,
+			ET => tElapsedTimeAtMinus2);
+		
+		bTimerAboveMinus2 := FALSE; 
+		TimerAboveMinus2(IN := bTimerAboveMinus2,
+			PT := tMinTimeAboveMinus2,
+			Q => bTimerAboveMinus2Out,
+			ET => tElapsedTimeAboveMinus2);
+		
+		FB_PI(fSetpointValue		:= fTfruitRef-fTfruitZero,
+			fActualValue		:= fTfruit-fTfruitZero ,
+			fManSyncValue	:= 0,
+			bSync				:= FALSE,
+			eMode				:= E_CTRL_MODE.eCTRL_MODE_RESET,
+			bHold				:= FALSE,
+			stParams			:= ParamsPi,
+			fOut				=> fUpi,
+			bARWactive		=> ,
+			eErrorId			=> eErrorIdPI,
+			bError				=> bErrorPI);
+		FB_I(fIn				:= fUerrorSat,
+			eMode				:= E_CTRL_MODE.eCTRL_MODE_RESET,
+			stParams			:= ParamsI,
+			fOut				=> fUantiWind,
+			eErrorId			=> eErrorIdI,
+			bError				=> bErrorI);
+		
+		fTthermostatOut := fTthermostat;
+		sStateText := 'Normal control and NOT collecting data';
+		bRelay := FALSE;
+		
+	END_IF
+//******************************************************************************//	
+	IF NOT bSafety THEN //Error state
+		
+		//Resetting PI, I and TON
+		bRunOnce := TRUE;
+		bTimerAtMinus2 := FALSE;
+		TimerAtMinus2(IN := bTimerAtMinus2,
+			PT := tMaxTimeMinus2,
+			Q => bTimerAtMinus2Out,
+			ET => tElapsedTimeAtMinus2);
+		
+		bTimerAboveMinus2 := FALSE; 
+		TimerAboveMinus2(IN := bTimerAboveMinus2,
+			PT := tMinTimeAboveMinus2,
+			Q => bTimerAboveMinus2Out,
+			ET => tElapsedTimeAboveMinus2);
+
+		
+		FB_PI(fSetpointValue		:= fTfruitRef-fTfruitZero,
+			fActualValue		:= fTfruit-fTfruitZero ,
+			fManSyncValue	:= 0,
+			bSync				:= FALSE,
+			eMode				:= E_CTRL_MODE.eCTRL_MODE_RESET,
+			bHold				:= FALSE,
+			stParams			:= ParamsPi,
+			fOut				=> fUpi,
+			bARWactive		=> ,
+			eErrorId			=> eErrorIdPI,
+			bError				=> bErrorPI);
+		FB_I(fIn				:= fUerrorSat,
+			eMode				:= E_CTRL_MODE.eCTRL_MODE_RESET,
+			stParams			:= ParamsI,
+			fOut				=> fUantiWind,
+			eErrorId			=> eErrorIdI,
+			bError				=> bErrorI);
+			
+		//Reset button with rising edge
+		rTrigger(CLK:=bReset,
+					Q => bRtrigOut);
+		IF(bRtrigOut = TRUE) THEN
+			bSafety := TRUE;
+		END_IF
+		
+		sStateText := 'Error mode, settemperature remained to long at -2°C. Press reset in order to acces other control modes.
+						Normal operation without data collecting currently active';
+		bRelay := FALSE;
+		fTthermostatOut := fTthermostat;
+	END_IF
+END_IF
+]]></ST>
+    </Implementation>
+    <LineIds Name="FB_FruitTemperatureControl">
+      <LineId Id="285" Count="0" />
+      <LineId Id="510" Count="0" />
+      <LineId Id="284" Count="0" />
+      <LineId Id="515" Count="0" />
+      <LineId Id="514" Count="0" />
+      <LineId Id="61" Count="0" />
+      <LineId Id="68" Count="0" />
+      <LineId Id="65" Count="2" />
+      <LineId Id="62" Count="0" />
+      <LineId Id="424" Count="0" />
+      <LineId Id="111" Count="0" />
+      <LineId Id="103" Count="1" />
+      <LineId Id="117" Count="2" />
+      <LineId Id="121" Count="1" />
+      <LineId Id="124" Count="0" />
+      <LineId Id="128" Count="9" />
+      <LineId Id="171" Count="0" />
+      <LineId Id="127" Count="0" />
+      <LineId Id="354" Count="0" />
+      <LineId Id="352" Count="0" />
+      <LineId Id="90" Count="0" />
+      <LineId Id="1263" Count="0" />
+      <LineId Id="1266" Count="0" />
+      <LineId Id="1264" Count="1" />
+      <LineId Id="149" Count="0" />
+      <LineId Id="174" Count="1" />
+      <LineId Id="178" Count="1" />
+      <LineId Id="181" Count="3" />
+      <LineId Id="180" Count="0" />
+      <LineId Id="170" Count="0" />
+      <LineId Id="150" Count="5" />
+      <LineId Id="161" Count="0" />
+      <LineId Id="428" Count="0" />
+      <LineId Id="423" Count="0" />
+      <LineId Id="163" Count="4" />
+      <LineId Id="162" Count="0" />
+      <LineId Id="197" Count="0" />
+      <LineId Id="939" Count="1" />
+      <LineId Id="946" Count="0" />
+      <LineId Id="1500" Count="1" />
+      <LineId Id="947" Count="0" />
+      <LineId Id="1115" Count="0" />
+      <LineId Id="1117" Count="1" />
+      <LineId Id="1168" Count="1" />
+      <LineId Id="1119" Count="0" />
+      <LineId Id="1425" Count="0" />
+      <LineId Id="1120" Count="15" />
+      <LineId Id="1176" Count="0" />
+      <LineId Id="1136" Count="9" />
+      <LineId Id="1147" Count="0" />
+      <LineId Id="1113" Count="1" />
+      <LineId Id="948" Count="0" />
+      <LineId Id="938" Count="0" />
+      <LineId Id="1173" Count="0" />
+      <LineId Id="70" Count="0" />
+      <LineId Id="73" Count="0" />
+      <LineId Id="202" Count="0" />
+      <LineId Id="1349" Count="1" />
+      <LineId Id="1158" Count="9" />
+      <LineId Id="969" Count="0" />
+      <LineId Id="243" Count="0" />
+      <LineId Id="233" Count="9" />
+      <LineId Id="231" Count="0" />
+      <LineId Id="220" Count="4" />
+      <LineId Id="219" Count="0" />
+      <LineId Id="953" Count="1" />
+      <LineId Id="952" Count="0" />
+      <LineId Id="951" Count="0" />
+      <LineId Id="950" Count="0" />
+      <LineId Id="504" Count="0" />
+      <LineId Id="76" Count="0" />
+      <LineId Id="83" Count="0" />
+      <LineId Id="85" Count="1" />
+      <LineId Id="1348" Count="0" />
+      <LineId Id="1347" Count="0" />
+      <LineId Id="1148" Count="9" />
+      <LineId Id="970" Count="1" />
+      <LineId Id="265" Count="15" />
+      <LineId Id="263" Count="0" />
+      <LineId Id="956" Count="0" />
+      <LineId Id="959" Count="0" />
+      <LineId Id="957" Count="1" />
+      <LineId Id="955" Count="0" />
+      <LineId Id="87" Count="0" />
+      <LineId Id="1174" Count="0" />
+      <LineId Id="882" Count="0" />
+      <LineId Id="965" Count="1" />
+      <LineId Id="921" Count="0" />
+      <LineId Id="900" Count="0" />
+      <LineId Id="1002" Count="2" />
+      <LineId Id="1001" Count="0" />
+      <LineId Id="1000" Count="0" />
+      <LineId Id="902" Count="0" />
+      <LineId Id="1007" Count="2" />
+      <LineId Id="1006" Count="0" />
+      <LineId Id="978" Count="0" />
+      <LineId Id="920" Count="0" />
+      <LineId Id="904" Count="15" />
+      <LineId Id="903" Count="0" />
+      <LineId Id="935" Count="0" />
+      <LineId Id="932" Count="0" />
+      <LineId Id="924" Count="0" />
+      <LineId Id="974" Count="0" />
+      <LineId Id="927" Count="0" />
+      <LineId Id="973" Count="0" />
+      <LineId Id="930" Count="0" />
+      <LineId Id="964" Count="0" />
+      <LineId Id="961" Count="2" />
+      <LineId Id="960" Count="0" />
+      <LineId Id="884" Count="0" />
+      <LineId Id="74" Count="0" />
+      <LineId Id="82" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

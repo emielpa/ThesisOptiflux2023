@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.11">
+  <DUT Name="eModeTemperatureControl" Id="{dc0421e2-8e96-41ba-adc7-8923c07f4e95}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE eModeTemperatureControl :
+(
+	Normal := 0,
+	Measure := 1,
+	Control := 2
+	//Alarm := 3 Deze bestaat niet want de input gaat dat overwriten
+);
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>
