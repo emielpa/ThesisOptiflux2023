@@ -1,10 +1,10 @@
 import matplotlib.pyplot as plt
-
+import numpy as np
 frequentie = [50,45,40,35,30,25,20,15,10]
-savings36 = [0,606,1592,2249,2345,2886,3235,3475,3867]
-savings45 = [0, 742, 1949, 2753, 2871, 3533, 3960, 4254, 4733]
-savings54 = [0,878,2305,3257,3396,4179,4685,5032,5600]
-savings27 = [0, 470, 1235,1746,1820,2240,2511,2697,3001]
+savings36 = np.array([0,533.70,1387.42,1989.41,2120.62,2600.03,2931.78,3181.75,3528.68])
+savings45 = (savings36/0.36)*0.45
+savings54 = (savings36/0.36)*0.54
+savings27 = (savings36/0.36)*0.27
 
 graph, (plot2) = plt.subplots(1, 1)
 plot2.plot(frequentie, savings27, label = "0,27 €/kWh")
@@ -22,4 +22,3 @@ graph.tight_layout()
 plt.grid()
 plt.legend()
 plt.show()
-
