@@ -1,0 +1,60 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.11">
+  <POU Name="FB_RetrieveLowerLimit" Id="{14b1c42e-8bc8-4251-99af-e4f9fdd6e007}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_RetrieveLowerLimit
+VAR_INPUT
+	bCooling : BOOL;
+    fTfruitHot : REAL; // Fruit temperature sensor at hot side of the room
+    fTfruitCold : REAL; // fruit temperature sensor at cold side of the room
+    bUpdateRequested : BOOL;
+END_VAR
+VAR_OUTPUT
+	bRetrievingLowerLimit : BOOL;
+    bLowerLimitRetrieved : BOOL := FALSE;
+    fCurrentLowerLimit : REAL :=999.99; //If fCurrentUpperLimit = 999.99 then we know that it isn't set yet 
+END_VAR
+VAR
+	fStartDiff_lowerlimit : REAL;
+    fEndDiff_lowerlimit : REAL;
+    fMax_lowerlimit : REAL;
+    tTimeForVentilation : TIME := T#20M; // 20 minutes
+    timer : TON;
+    bTimer_done : BOOL;
+    bStartVentilating : BOOL; // Boolean to start the ventilation process
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[R_trig(CLK:=bUpdateRequested);
+IF R_trig.Q AND NOT bRetrievingLowerLimit THEN
+	bRetrievingLowerLimit := TRUE;
+	bLowerLimitRetrieved := FALSE;
+END_IF
+
+IF bRetrievingLowerLimit THEN
+	F_trig(CLK := bCooling);
+END_IF
+
+IF (F_trig.Q) AND bRetrievingLowerLimit THEN // falling edge --> faling edge bCooling
+	bStartVentilating := TRUE; // Signal to start the ventilation process
+	fStartDiff_lowerlimit := ABS(fTfruitHot - fTfruitCold);
+END_IF
+
+IF bStartVentilating AND bRetrievingLowerLimit THEN
+	timer(IN := bStartVentilating, PT := tTimeForVentilation, Q => bTimer_done); // wait for 20 minutes
+	IF bTimer_done THEN
+		fEndDiff_lowerlimit := ABS(fTfruitHot - fTfruitCold);
+		fMax_lowerlimit := fStartDiff_lowerlimit - fEndDiff_lowerlimit;
+		bStartVentilating := False;
+		bLowerLimitRetrieved := TRUE;
+		bRetrievingLowerLimit := FALSE;
+	END_IF
+END_IF
+
+fCurrentLowerLimit := fMax_lowerlimit;]]></ST>
+    </Implementation>
+    <LineIds Name="FB_RetrieveLowerLimit">
+      <LineId Id="210" Count="25" />
+      <LineId Id="9" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

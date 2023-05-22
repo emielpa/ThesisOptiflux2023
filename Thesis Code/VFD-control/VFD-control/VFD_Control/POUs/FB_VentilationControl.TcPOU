@@ -1,0 +1,144 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.11">
+  <POU Name="FB_VentilationControl" Id="{adda8a7a-01ae-425a-9eb4-ad46d329854a}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_VentilationControl
+VAR_INPUT
+	fTfruitHot : REAL; // Fruit temperature sensor at hot side of the room
+    fTfruitCold : REAL; // Fruit temperature sensor at cold side of the room
+    bVent20: BOOL;          // Digital input connected to 39K1 relay for 20 % ventilation which is connected to LI1
+    bVent80: BOOL;         // Digital input connected to 39K3 relay for 80 % ventilation which is connected to LI2
+    bCooling: BOOL;         // Digital input connected to valve relay of the cooling liquid
+    bScrubbing: BOOL;       // Digital input conncted to ectronic relay of the motor for scrubbing
+    eControlModeVent : eControlModeVent; // control mode input
+    bStartDCA: BOOL;              // A boolean that is true if a DCA action starts
+    bResetControl: BOOL;     // Reset mode
+    bUpdateLimits: BOOL;    // To update the recommended limit values
+END_VAR
+VAR_OUTPUT
+	bVent100Control: BOOL;   // Digital output connected to relay K1 which will be connected to LI3
+    bVentZeroControl: BOOL;   // Digital output connected to relay K2 which will be connected to LI4
+    fCurrentMode: LREAL;     // To display the current control mode
+    fLatestUpperLimit : REAL := 999;
+END_VAR
+VAR
+    Retrieving_lowerLimit : FB_RetrieveLowerLimit;
+	Retrieving_upperLimit : FB_UpperLimitRetrieval;
+	bRetrieving_lowerlimit : BOOL;
+    bLowerLimitRetrieved : BOOL;
+	bUpdateRequested : BOOL;
+	bCoolingJustEnded : BOOL;
+END_VAR
+VAR_IN_OUT
+    fUpperLimit : REAL := 0.0; // Input of the upper limit done by the grower, based on the recommended limit
+    fLowerLimit : REAL := 0.0; // Input of the lower limit done by the grower, based on the recommended limit
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[R_trig(CLK:=bUpdateLimits);
+IF R_trig.Q THEN // this will trigger an update request for the lower limit. And it will update the upper limit to the latest value.
+    bUpdateRequested := TRUE;
+END_IF
+
+IF bUpdateRequested THEN
+Retrieving_upperLimit(bStartDCA := bStartDCA,
+                    bUpdateRequested := bUpdateRequested,
+                    fTfruitHot := fTfruitHot,
+                    fTfruitCold := fTfruitHot,
+                    fCurrentUpperLimit => fUpperLimit,
+                    fLatestUpperLimit => fLatestUpperLimit);
+
+Retrieving_lowerLimit(bCooling := bCooling,
+                    bUpdateRequested := bUpdateRequested,
+                    fTfruitHot := fTfruitHot,
+                    fTfruitCold := fTfruitCold,
+                    fCurrentLowerLimit => fLowerLimit,  
+                    bRetrievingLowerLimit => bRetrieving_lowerlimit,
+                    bLowerLimitRetrieved => bLowerLimitRetrieved);
+    IF bLowerLimitRetrieved THEN // Reset the request boolean, UpperLimit is always "Up to date"
+        bUpdateRequested := FALSE;
+    END_IF	
+END_IF
+
+//////////////////////////////Mode control////////////////////////////////////////////////////////////////////////
+
+IF (eControlModeVent = 0) THEN // normal regime mode (all at 50 Hz)
+    fCurrentMode := eControlModeVent;
+    bVent100Control := TRUE;
+END_IF
+
+IF (eControlModeVent = 1) THEN // adapted regime mode (rest ventilation at 40 Hz)
+    fCurrentMode := eControlModeVent;
+    IF (bVent20 AND bVent80 AND bCooling) THEN
+        bVent100Control := TRUE; // sets the ventilation from 80 % to 100 % during cooling actions
+    //Else: do nothing and leave the ventilation at 80 % --> everey action is 80 % unless tge 
+    END_IF
+END_IF
+
+IF (eControlModeVent = 2) THEN // newly proposed regime mode (rest ventilation based on warm and cold temperature)
+	F_trig(CLK := bCooling);
+	IF F_trig.Q THEN
+		bCoolingJustEnded := TRUE;
+	END_IF
+	IF bCooling THEN
+		bCoolingJustEnded := FALSE;
+		bVent100Control := TRUE;
+	END_IF
+	
+    IF (bCoolingJustEnded AND NOT bScrubbing) THEN //Rest ventilation
+        bVentZeroControl := TRUE; // sets the ventilation at 0 % between cooling actions, but not during scrubbing actions
+        IF (ABS(fTfruitHot - fTfruitCold) >= fUpperLimit) THEN // above the upper limit, the vetilation should be ON (unless a scrubber action or defrosting actions will take place)
+            bVentZeroControl := FALSE; //ventilating op 80 %
+        // activating bVent20 and bVent80
+        ELSIF ((ABS(fTfruitHot - fTfruitCold) < fLowerLimit)) THEN
+            bVentZeroControl := TRUE;
+			bVent100Control := TRUE;
+        END_IF
+	ELSIF (bRetrieving_lowerlimit) THEN
+        bVent100Control := TRUE;
+	ELSIF bScrubbing THEN
+		bVentZeroControl := FALSE;
+    END_IF
+END_IF
+    IF (bRetrieving_lowerlimit) THEN
+        bVent100Control := TRUE;
+END_IF
+
+
+]]></ST>
+    </Implementation>
+    <LineIds Name="FB_VentilationControl">
+      <LineId Id="242" Count="0" />
+      <LineId Id="154" Count="1" />
+      <LineId Id="244" Count="0" />
+      <LineId Id="267" Count="0" />
+      <LineId Id="245" Count="0" />
+      <LineId Id="251" Count="12" />
+      <LineId Id="247" Count="0" />
+      <LineId Id="265" Count="1" />
+      <LineId Id="264" Count="0" />
+      <LineId Id="159" Count="0" />
+      <LineId Id="175" Count="1" />
+      <LineId Id="178" Count="8" />
+      <LineId Id="268" Count="0" />
+      <LineId Id="187" Count="0" />
+      <LineId Id="190" Count="3" />
+      <LineId Id="196" Count="0" />
+      <LineId Id="270" Count="0" />
+      <LineId Id="274" Count="3" />
+      <LineId Id="284" Count="0" />
+      <LineId Id="278" Count="0" />
+      <LineId Id="271" Count="0" />
+      <LineId Id="197" Count="6" />
+      <LineId Id="319" Count="0" />
+      <LineId Id="204" Count="0" />
+      <LineId Id="282" Count="1" />
+      <LineId Id="316" Count="0" />
+      <LineId Id="318" Count="0" />
+      <LineId Id="279" Count="1" />
+      <LineId Id="209" Count="2" />
+      <LineId Id="321" Count="0" />
+      <LineId Id="320" Count="0" />
+      <LineId Id="83" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

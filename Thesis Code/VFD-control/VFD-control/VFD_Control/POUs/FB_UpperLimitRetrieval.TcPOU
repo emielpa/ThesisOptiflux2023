@@ -1,0 +1,51 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.11">
+  <POU Name="FB_UpperLimitRetrieval" Id="{d3c41b8e-58ad-4411-aa53-da5f8e9961d0}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_UpperLimitRetrieval
+VAR_INPUT
+    bStartDCA : BOOL;
+    bUpdateRequested : BOOL;
+    fTfruitHot : REAL; // fruit temperature at hot side of the room
+    fTfruitCold : REAL; // fruit temperature at cold side of the room
+END_VAR
+VAR_OUTPUT
+    fLatestUpperLimit : REAL ;
+	fCurrentUpperLimit : REAL := 999.99; //If fCurrentUpperLimit = 999.99 then we know that it isn't set yet
+END_VAR
+VAR
+	bDcaStarted : BOOL := FALSE;
+    fStartDiff_upperlimit : REAL;
+    fEndDiff_upperlimit : REAL;
+    fMax_upperlimit : REAL;
+    tTimeForUpperLimitLog : TIME := T#30M;
+    bTimer_done : BOOL;
+	timer : TON;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[R_trig(CLK:=bStartDCA);
+IF R_trig.Q THEN // positive edge trigger of a DCA action
+	bDcaStarted:= TRUE;
+END_IF
+
+IF bDcaStarted THEN
+    fStartDiff_upperlimit := ABS(fTfruitHot - fTfruitCold);
+    timer(IN := bDcaStarted, PT := tTimeForUpperLimitLog, Q => bTimer_done); // wait for 20 minutes
+    IF bTimer_done THEN
+        fEndDiff_upperlimit := ABS(fTfruitHot - fTfruitCold);
+        fMax_upperlimit := fStartDiff_upperlimit - fEndDiff_upperlimit;
+        fLatestUpperLimit := fMax_upperlimit;
+		bDcaStarted := FALSE;
+    END_IF
+END_IF
+
+IF bUpdateRequested THEN
+    fCurrentUpperLimit := fLatestUpperLimit;
+END_IF]]></ST>
+    </Implementation>
+    <LineIds Name="FB_UpperLimitRetrieval">
+      <LineId Id="168" Count="17" />
+      <LineId Id="9" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

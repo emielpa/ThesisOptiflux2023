@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.11">
+  <DUT Name="eControlModeVent" Id="{4a8fbe35-0b64-4f4f-9ba3-4cd215660e76}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE eControlModeVent :
+(
+	Normal := 0,
+	Adapted := 1,
+	NewRegime := 2
+);
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>
